@@ -121,6 +121,7 @@ struct display TheDisplay;
 int defobuflimit = OBUF_MAX;
 int defnonblock = -1;
 int defmousetrack = 0;
+int defbracketed = 0;
 #ifdef AUTO_NUKE
 int defautonuke = 0;
 #endif
@@ -183,6 +184,7 @@ DefRestore()
   LCursorkeysMode(flayer, 0);
   LCursorVisibility(flayer, 0);
   LMouseMode(flayer, 0);
+  LBracketedPasteMode(flayer, 0);
   LSetRendition(flayer, &mchar_null);
   LSetFlow(flayer, nwin_default.flowflag & FLOW_NOW);
 }
@@ -314,6 +316,7 @@ struct mode *Mode;
   D_user = *u;
   D_processinput = ProcessInput;
   D_mousetrack = defmousetrack;
+  D_bracketed = defbracketed;
   return display;
 }
 
@@ -487,6 +490,7 @@ FinitTerm()
       if (D_mousetrack)
 	D_mousetrack = 0;
       MouseMode(0);
+      BracketedPasteMode(0);
       SetRendition(&mchar_null);
       SetFlow(FLOW_NOW);
 #ifdef MAPKEYS
@@ -833,6 +837,29 @@ int mode;
           AddStr(mousebuf);
 	}
       D_mouse = mode;
+    }
+}
+
+void
+BracketedPasteMode(mode)
+int mode;
+{
+  if (!display)
+    return;
+
+  if (D_bracketed != mode)
+    {
+      if (!D_CXT)
+	return;
+      if (D_bracketed)
+        {
+          AddStr("\033[?2004l");
+	}
+      if (mode)
+        {
+          AddStr("\033[?2004h");
+	}
+      D_bracketed = mode;
     }
 }
 
@@ -1261,6 +1288,7 @@ int cur_only;
   CursorkeysMode(0);
   CursorVisibility(0);
   MouseMode(0);
+  BracketedPasteMode(0);
   SetRendition(&mchar_null);
   SetFlow(FLOW_NOW);
 
@@ -3159,6 +3187,7 @@ NukePending()
   int oldkeypad = D_keypad, oldcursorkeys = D_cursorkeys;
   int oldcurvis = D_curvis;
   int oldmouse = D_mouse;
+  int oldbracketed = D_bracketed;
 
   oldrend = D_rend;
   len = D_obufp - D_obuf;
@@ -3221,6 +3250,7 @@ NukePending()
   CursorkeysMode(oldcursorkeys);
   CursorVisibility(oldcurvis);
   MouseMode(oldmouse);
+  BracketedPasteMode(oldbracketed);
   if (D_CWS)
     {
       debug("ResizeDisplay: using WS\n");

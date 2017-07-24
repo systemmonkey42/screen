@@ -840,6 +840,20 @@ void LMouseMode(struct layer *l, int on)
   }
 }
 
+void LBracketedPasteMode(struct layer *l, int on)
+{
+  struct canvas *cv;
+  for (cv = l->l_cvlist; cv; cv = cv->c_lnext)
+    {
+      display = cv->c_display;
+      if (D_blocked)
+	continue;
+      if (cv != D_forecv)
+	continue;
+      BracketedPasteMode(on);
+    }
+}
+
 void LClearAll(struct layer *l, int uself)
 {
   LClearArea(l, 0, 0, l->l_width - 1, l->l_height - 1, 0, uself);

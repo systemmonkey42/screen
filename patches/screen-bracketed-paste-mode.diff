@@ -1,0 +1,205 @@
+diff --git a/src/ansi.c b/src/ansi.c
+index d88e153..ecc6e69 100644
+--- a/src/ansi.c
++++ b/src/ansi.c
+@@ -193,6 +193,7 @@ register struct win *p;
+   p->w_insert = 0;
+   p->w_revvid = 0;
+   p->w_mouse = 0;
++  p->w_bracketed = 0;
+   p->w_curinv = 0;
+   p->w_curvvis = 0;
+   p->w_autolf = 0;
+@@ -1462,6 +1463,10 @@ int c, intermediate;
+ 	      curr->w_mouse = i ? a1 : 0;
+ 	      LMouseMode(&curr->w_layer, curr->w_mouse);
+ 	      break;
++        case 2004:  /* bracketed paste mode */
++	      curr->w_bracketed = i ? 1 : 0;
++	      LBracketedPasteMode(&curr->w_layer, curr->w_bracketed);
++	      break;
+ 	    }
+ 	}
+       break;
+diff --git a/src/display.c b/src/display.c
+index 94c05f1..bfb4661 100644
+--- a/src/display.c
++++ b/src/display.c
+@@ -121,6 +121,7 @@ struct display TheDisplay;
+ int defobuflimit = OBUF_MAX;
+ int defnonblock = -1;
+ int defmousetrack = 0;
++int defbracketed = 0;
+ #ifdef AUTO_NUKE
+ int defautonuke = 0;
+ #endif
+@@ -183,6 +184,7 @@ DefRestore()
+   LCursorkeysMode(flayer, 0);
+   LCursorVisibility(flayer, 0);
+   LMouseMode(flayer, 0);
++  LBracketedPasteMode(flayer, 0);
+   LSetRendition(flayer, &mchar_null);
+   LSetFlow(flayer, nwin_default.flowflag & FLOW_NOW);
+ }
+@@ -314,6 +316,7 @@ struct mode *Mode;
+   D_user = *u;
+   D_processinput = ProcessInput;
+   D_mousetrack = defmousetrack;
++  D_bracketed = defbracketed;
+   return display;
+ }
+ 
+@@ -487,6 +490,7 @@ FinitTerm()
+       if (D_mousetrack)
+ 	D_mousetrack = 0;
+       MouseMode(0);
++      BracketedPasteMode(0);
+       SetRendition(&mchar_null);
+       SetFlow(FLOW_NOW);
+ #ifdef MAPKEYS
+@@ -836,6 +840,29 @@ int mode;
+     }
+ }
+ 
++void
++BracketedPasteMode(mode)
++int mode;
++{
++  if (!display)
++    return;
++
++  if (D_bracketed != mode)
++    {
++      if (!D_CXT)
++	return;
++      if (D_bracketed)
++        {
++          AddStr("\033[?2004l");
++	}
++      if (mode)
++        {
++          AddStr("\033[?2004h");
++	}
++      D_bracketed = mode;
++    }
++}
++
+ static int StrCost;
+ 
+ /* ARGSUSED */
+@@ -1261,6 +1288,7 @@ int cur_only;
+   CursorkeysMode(0);
+   CursorVisibility(0);
+   MouseMode(0);
++  BracketedPasteMode(0);
+   SetRendition(&mchar_null);
+   SetFlow(FLOW_NOW);
+ 
+@@ -3121,6 +3149,7 @@ NukePending()
+   int oldkeypad = D_keypad, oldcursorkeys = D_cursorkeys;
+   int oldcurvis = D_curvis;
+   int oldmouse = D_mouse;
++  int oldbracketed = D_bracketed;
+ 
+   oldrend = D_rend;
+   len = D_obufp - D_obuf;
+@@ -3183,6 +3212,7 @@ NukePending()
+   CursorkeysMode(oldcursorkeys);
+   CursorVisibility(oldcurvis);
+   MouseMode(oldmouse);
++  BracketedPasteMode(oldbracketed);
+   if (D_CWS)
+     {
+       debug("ResizeDisplay: using WS\n");
+diff --git a/src/display.h b/src/display.h
+index e8b3b80..19cfbcd 100644
+--- a/src/display.h
++++ b/src/display.h
+@@ -102,6 +102,7 @@ struct display
+   int   d_mouse;		/* mouse mode */
+   int	d_mousetrack;		/* set when user wants to use mouse even when the window
+ 				   does not */
++  int   d_bracketed;    /* bracketed paste mode */
+ #ifdef RXVT_OSC
+   int   d_xtermosc[4];		/* osc used */
+ #endif
+@@ -189,6 +190,7 @@ extern struct display TheDisplay;
+ 
+ #define D_user		DISPLAY(d_user)
+ #define D_username	(DISPLAY(d_user) ? DISPLAY(d_user)->u_name : 0)
++#define D_bracketed	DISPLAY(d_bracketed)
+ #define D_canvas	DISPLAY(d_canvas)
+ #define D_cvlist	DISPLAY(d_cvlist)
+ #define D_layout	DISPLAY(d_layout)
+diff --git a/src/extern.h b/src/extern.h
+index b8cead4..8fb1003 100644
+--- a/src/extern.h
++++ b/src/extern.h
+@@ -286,6 +286,7 @@ extern void  CursorkeysMode __P((int));
+ extern void  ReverseVideo __P((int));
+ extern void  CursorVisibility __P((int));
+ extern void  MouseMode __P((int));
++extern void  BracketedPasteMode __P((int));
+ extern void  SetFont __P((int));
+ extern void  SetAttr __P((int));
+ extern void  SetColor __P((int, int));
+@@ -445,6 +446,7 @@ extern void  LSetFlow __P((struct layer *, int));
+ extern void  LKeypadMode __P((struct layer *, int));
+ extern void  LCursorkeysMode __P((struct layer *, int));
+ extern void  LMouseMode __P((struct layer *, int));
++extern void  LBracketedPasteMode __P((struct layer *, int));
+ #ifdef USEVARARGS
+ extern void  LMsg __P((int, const char *, ...)) __attribute__((format(printf, 2, 3)));
+ #else
+diff --git a/src/layer.c b/src/layer.c
+index 1ae7972..4b80c82 100644
+--- a/src/layer.c
++++ b/src/layer.c
+@@ -911,6 +911,23 @@ int on;
+ }
+ 
+ void
++LBracketedPasteMode(l, on)
++struct layer *l;
++int on;
++{
++  struct canvas *cv;
++  for (cv = l->l_cvlist; cv; cv = cv->c_lnext)
++    {
++      display = cv->c_display;
++      if (D_blocked)
++	continue;
++      if (cv != D_forecv)
++	continue;
++      BracketedPasteMode(on);
++    }
++}
++
++void
+ LClearAll(l, uself)
+ struct layer *l;
+ int uself;
+diff --git a/src/window.c b/src/window.c
+index 1c6f5b6..a4c6fa3 100644
+--- a/src/window.c
++++ b/src/window.c
+@@ -498,6 +498,7 @@ WinRestore()
+       ReverseVideo(fore->w_revvid);
+       CursorVisibility(fore->w_curinv ? -1 : fore->w_curvvis);
+       MouseMode(fore->w_mouse);
++      BracketedPasteMode(fore->w_bracketed);
+     }
+ }
+ 
+diff --git a/src/window.h b/src/window.h
+index 7311ecb..a47f0fa 100644
+--- a/src/window.h
++++ b/src/window.h
+@@ -235,6 +235,7 @@ struct win
+   char	 w_xtermosc[4][MAXSTR];	/* special xterm/rxvt escapes */
+ #endif
+   int    w_mouse;		/* mouse mode 0,9,1000 */
++  int    w_bracketed;		/* bracketed paste mode */
+ #ifdef HAVE_BRAILLE
+   int	 w_bd_x, w_bd_y;	/* Braille cursor position */
+ #endif
